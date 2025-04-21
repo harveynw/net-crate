@@ -1,0 +1,31 @@
+[package]
+name = "net"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "net"
+path = "src/lib.rs"
+
+[[bin]]
+name = "example"
+path = "src/main.rs"
+
+[workspace]
+members = ["clients/game/backend"]
+
+[dependencies]
+# Logging
+env_logger = "0.11.8"
+log = "0.4.27"
+
+# Async
+tokio = "1.44.1"
+futures-util = "0.3.31"
+
+# Network protocols (webrtc version 0.12 is currently bugged)
+tokio-tungstenite = "0.26.2"
+webrtc = "0.11.0"
+bytes = "1.10.1"
+serde_json = "1.0.140"
+serde = "1.0.219"

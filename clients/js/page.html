@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Data Channel</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebRTC Data Channel</h1>
+        <button id="sendButton" disabled>Send Message</button>
+    </div>
+    <br>
+    <div class="container">
+        <ol id="received-messages"></ol>
+    </div>
+
+    <script>
+        let dataChannel;
+        const ws = new WebSocket('ws://127.0.0.1:3000');
+        const peerConnection = new RTCPeerConnection();
+
+        // Handle WebSocket messages
+        ws.onmessage = async (event) => {
+            const message = JSON.parse(event.data);
+            
+            if (message.sdp) {
+                let sdp = {'sdp': message.sdp, 'type': 'offer'}
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                ws.send(JSON.stringify(answer));
+            } else if (message.candidate) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+            }
+        };
+
+        // ICE candidate handling
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                ws.send(JSON.stringify({
+                    type: 'ice',
+                    candidate: event.candidate
+                }));
+            }
+        };
+
+        // Data channel handling
+        peerConnection.ondatachannel = (event) => {
+            dataChannel = event.channel;
+            dataChannel.onopen = () => {
+                console.log('Data channel opened');
+                document.getElementById('sendButton').disabled = false;
+            };
+            dataChannel.onmessage = (event) => {
+                console.log('Received message:', event.data);
+
+                // Get the list by its ID
+                const list = document.getElementById('received-messages');
+
+                // Create a new list item
+                const newItem = document.createElement('li');
+                newItem.textContent = new TextDecoder().decode(event.data); // Set the text content
+
+                // Append the new item to the list
+                list.appendChild(newItem);
+            };
+            dataChannel.onclose = () => {
+                console.log('Data channel closed');
+                document.getElementById('sendButton').disabled = true;
+            };
+        };
+
+        // Button click to send message
+        document.getElementById('sendButton').onclick = () => {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send('Hello from the client!');
+                console.log('Message sent');
+            }
+        };
+
+        // Handle WebSocket errors
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket connection closed');
+        };
+    </script>
+</body>
+</html>

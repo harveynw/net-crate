@@ -1,0 +1,4 @@
+/target
+/venv
+/.vscode
+.DS_Store
