@@ -1,4 +1,4 @@
-pub type Identifier = u64;
+pub type Identifier = u32;
 
 #[derive(Debug)]
 pub enum Event {

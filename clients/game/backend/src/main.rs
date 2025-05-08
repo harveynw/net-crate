@@ -1,6 +1,7 @@
 use log::{info, warn};
+use message::{deserialize, serialize, ServerMessage};
 use net::{EventQueue, Server};
-use std::{collections::HashSet, time::{Duration, Instant}};
+use std::{collections::HashMap, time::{Duration, Instant}};
 
 mod message;
 
@@ -19,8 +20,7 @@ fn event_loop(mut server: Server, mut queue: EventQueue) {
     let target_frame_time = Duration::from_nanos(1_000_000_000 / 60);
 
     // State
-    let mut active = HashSet::new();
-    let mut angle: f32 = 0.0;
+    let mut players = HashMap::<u32, (f32, f32, f32)>::new();
 
     loop {
         // Save current time
@@ -29,19 +29,36 @@ fn event_loop(mut server: Server, mut queue: EventQueue) {
         // Update list of active players
         for event in queue.pop_all() {
             match event {
-                net::Event::Open(id) => { let _ = active.insert(id); },
-                net::Event::Closed(id) => { let _ = active.remove(&id); },
-                net::Event::Received(id, bytes) => info!("From {}, got {:?}", id, bytes),
+                net::Event::Open(id) => { 
+                    players
+                        .keys()
+                        .for_each(|k| server.send_reliable(*k, serialize(ServerMessage::PlayerJoined(id))));
+                    players
+                        .keys()
+                        .for_each(|k| server.send_reliable(id, serialize(ServerMessage::PlayerJoined(*k))));
+                    players.insert(id, (0.0, 0.0, 0.0)); 
+                },
+                net::Event::Closed(id) => {
+                    players.remove(&id); 
+                    players
+                        .keys()
+                        .for_each(|k| server.send_reliable(*k, serialize(ServerMessage::PlayerLeft(id))));
+                },
+                net::Event::Received(id, bytes) => {
+                    let message = deserialize(bytes);
+
+                    #[allow(irrefutable_let_patterns)]
+                    if let message::ClientMessage::Move(x, y, z) = message {
+                        players.insert(id, (x, y, z));
+                    }
+                }
             };
         }
-        
-        // Calculate new angle
-        angle += 0.01;
 
-        // Broadcast new angle
-        for id in &active {
-            server.send_unreliable(*id, message::serialize(message::ServerMessage::Angle(angle)));
-        }
+        // Broadcast locations
+        players
+            .keys()
+            .for_each(|k| server.send_reliable(*k, serialize(ServerMessage::Update(players.clone()))));
         
         // Calculate elapsed time
         let elapsed = frame_start.elapsed();

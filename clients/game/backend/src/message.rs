@@ -1,22 +1,20 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(TS, Serialize)]
 #[ts(export)]
 pub enum ServerMessage {
-    Angle(f32)
+    Update(HashMap<u32, (f32, f32, f32)>),
+    PlayerJoined(u32),
+    PlayerLeft(u32)
 }
 
 #[derive(TS, Deserialize)]
 #[ts(export)]
 pub enum ClientMessage {
-    Join(JoinParams),
-}
-
-#[derive(TS, Deserialize)]
-struct JoinParams {
-    name: String,
-    protocol: u64
+    Move(f32, f32, f32),
 }
 
 pub fn serialize(message: ServerMessage) -> Vec<u8> {

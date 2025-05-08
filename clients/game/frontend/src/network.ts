@@ -1,48 +1,30 @@
-let dataChannel: RTCDataChannel;
+export let dataChannel: RTCDataChannel;
 
 import { ServerMessage } from '@binding/ServerMessage.ts';
+import { addPlayer, movePlayer, removePlayer } from './draw/scene';
 
-function getSendButton(): HTMLButtonElement {
-    let button = document.querySelector<HTMLButtonElement>('#counter');
-    if (button) {
-        return button;
-    } else {
-        throw new Error("No button");
-    }
-}
 
 export function setupNetwork() {
     const ws = new WebSocket('ws://127.0.0.1:3000');
+    ws.binaryType = 'arraybuffer';
+
     const peerConnection = new RTCPeerConnection();
-
-    // Function to deserialize WebRTC DataChannel message
-    function deserializeServerMessage(event: MessageEvent): ServerMessage | null {
-        try {
-            // Ensure message.data is an ArrayBuffer
-            if (!(event.data instanceof ArrayBuffer)) {
-                console.error("Expected ArrayBuffer, got:", typeof event.data);
-                return null;
-            }
-
-            // Convert ArrayBuffer to Uint8Array
-            const uint8Array = new Uint8Array(event.data);
-
-            // Convert Uint8Array to string (assuming UTF-8 encoding)
-            const decoder = new TextDecoder("utf-8");
-            const jsonString = decoder.decode(uint8Array);
-
-            // Parse JSON string to object
-            const deserialized: ServerMessage = JSON.parse(jsonString);
-
-            return deserialized;
-        } catch (error) {
-            console.error("Deserialization error:", error);
-            return null;
-        }
-    }
 
     // Handle WebSocket messages
     ws.onmessage = async (event) => {
+
+        /// Binary data is an app message
+        if (event.data instanceof ArrayBuffer) {
+            let message = deserializeServerMessage(event);
+
+            if(message) {
+                handleServerMessage(message);
+            }
+
+            return;
+        }
+
+        /// Text data is a signalling message
         const message = JSON.parse(event.data);
         
         if (message.sdp) {
@@ -71,23 +53,17 @@ export function setupNetwork() {
         dataChannel = event.channel;
         dataChannel.onopen = () => {
             console.log('Data channel opened');
-            getSendButton().disabled = false;
         };
         dataChannel.onmessage = (event) => {
-            console.log('Received message:', deserializeServerMessage(event));
+            let message = deserializeServerMessage(event);
+            if(message) {
+                handleServerMessage(message);
+            }
         };
         dataChannel.onclose = () => {
             console.log('Data channel closed');
-            getSendButton().disabled = true;
         };
-    };
 
-    // Button click to send message
-    getSendButton().onclick = () => {
-        if (dataChannel && dataChannel.readyState === 'open') {
-            dataChannel.send('Hello from the client!');
-            console.log('Message sent');
-        }
     };
 
     // Handle WebSocket errors
@@ -99,4 +75,59 @@ export function setupNetwork() {
         console.log('WebSocket connection closed');
     };
 
+}
+
+// Function to deserialize WebRTC DataChannel message
+function deserializeServerMessage(event: MessageEvent): ServerMessage | null {
+    try {
+        // Ensure message.data is an ArrayBuffer
+        if (!(event.data instanceof ArrayBuffer)) {
+            console.error("Expected ArrayBuffer, got:", typeof event.data);
+            return null;
+        }
+
+        // Convert ArrayBuffer to Uint8Array
+        const uint8Array = new Uint8Array(event.data);
+
+        // Convert Uint8Array to string (assuming UTF-8 encoding)
+        const decoder = new TextDecoder("utf-8");
+        const jsonString = decoder.decode(uint8Array);
+
+        // Parse JSON string to object
+        const deserialized: ServerMessage = JSON.parse(jsonString);
+
+        return deserialized;
+    } catch (error) {
+        console.error("Deserialization error:", error);
+        return null;
+    }
+}
+
+interface Updates {
+    [key: number]: [number, number, number]; 
+}
+
+
+function handleServerMessage(message: ServerMessage) {
+    if ("Update" in message) {
+        for (const [key, value] of Object.entries(message.Update)) {
+          if (value) {
+            const [x, y, z] = value;
+            movePlayer(key, x, y, z);
+            //console.log(`Update for key ${key}: Position (${x}, ${y}, ${z})`);
+            // Handle update logic here
+          }
+        }
+    } else if ("PlayerJoined" in message) {
+        console.log(`Player ${message.PlayerJoined} joined`);
+        addPlayer(message.PlayerJoined.toString());
+    // Handle player joined logic here
+    } else if ("PlayerLeft" in message) {
+        console.log(`Player ${message.PlayerLeft} left`);
+        removePlayer(message.PlayerLeft.toString());
+    // Handle player left logic here
+    } else {
+    // Ensure exhaustive checking
+        const _exhaustiveCheck: never = message;
+    }
 }
