@@ -1,14 +1,15 @@
-export let dataChannel: RTCDataChannel;
-
 import { ServerMessage } from '@binding/ServerMessage.ts';
-import { addPlayer, movePlayer, removePlayer } from './draw/scene';
+import { addPlayer, updatePlayer, removePlayer } from './scene';
 
+export let dataChannel: RTCDataChannel;
+export let ws: WebSocket;
+let peerConnection: RTCPeerConnection;
 
 export function setupNetwork() {
-    const ws = new WebSocket('ws://127.0.0.1:3000');
+    ws = new WebSocket('ws://127.0.0.1:3000');
     ws.binaryType = 'arraybuffer';
 
-    const peerConnection = new RTCPeerConnection();
+    peerConnection = new RTCPeerConnection();
 
     // Handle WebSocket messages
     ws.onmessage = async (event) => {
@@ -25,17 +26,7 @@ export function setupNetwork() {
         }
 
         /// Text data is a signalling message
-        const message = JSON.parse(event.data);
-        
-        if (message.sdp) {
-            let sdp: RTCSessionDescriptionInit = {'sdp': message.sdp, 'type': 'offer'}
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            ws.send(JSON.stringify(answer));
-        } else if (message.candidate) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
-        }
+        await handleSignallingEvent(event);
     };
 
     // ICE candidate handling
@@ -103,31 +94,33 @@ function deserializeServerMessage(event: MessageEvent): ServerMessage | null {
     }
 }
 
-interface Updates {
-    [key: number]: [number, number, number]; 
-}
-
 
 function handleServerMessage(message: ServerMessage) {
     if ("Update" in message) {
-        for (const [key, value] of Object.entries(message.Update)) {
-          if (value) {
-            const [x, y, z] = value;
-            movePlayer(key, x, y, z);
-            //console.log(`Update for key ${key}: Position (${x}, ${y}, ${z})`);
-            // Handle update logic here
-          }
+        for (const [key, state] of Object.entries(message.Update)) {
+            if (state) { updatePlayer(key, state); }
         }
     } else if ("PlayerJoined" in message) {
         console.log(`Player ${message.PlayerJoined} joined`);
         addPlayer(message.PlayerJoined.toString());
-    // Handle player joined logic here
     } else if ("PlayerLeft" in message) {
         console.log(`Player ${message.PlayerLeft} left`);
         removePlayer(message.PlayerLeft.toString());
-    // Handle player left logic here
-    } else {
-    // Ensure exhaustive checking
-        const _exhaustiveCheck: never = message;
+    } 
+}
+
+async function handleSignallingEvent(event: MessageEvent) {
+    const message = JSON.parse(event.data);
+
+    if (message.sdp) {
+        let sdp: RTCSessionDescriptionInit = {'sdp': message.sdp, 'type': 'offer'}
+
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        ws.send(JSON.stringify(answer));
+    } else if (message.candidate) {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
     }
 }

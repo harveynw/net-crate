@@ -1,10 +1,10 @@
 import './style.css'
 
 import { setupNetwork } from './network'
-import { setup } from './draw/scene'
+import { setupScene } from './scene'
 
 setupNetwork();
-setup();
+setupScene();
 
 
 

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 
 import { GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { Context } from './scene';
+import { Context } from '../scene';
+import { PlayerState } from '@binding/PlayerState';
 
 interface ActionDictionary {
     [key: string]: THREE.AnimationAction; 
@@ -10,6 +11,12 @@ interface ActionDictionary {
 
 const loader = new GLTFLoader();
 const PI = Math.PI;
+
+// Animation + Movement parameters
+const FADE_DURATION = 0.5;
+const RUN_VELOCITY = 5;
+const WALK_VELOCITY = 1.8;
+const ROTATE_SPEED = 0.05;
 
 // Player instance sets this when it binds to the browser controls
 let panel: GUI | null = null;
@@ -19,21 +26,22 @@ let settings = {
     fixe_transition: true,
 };
 
+// Current key inputs
+let key = [0, 0];
+let ease = new THREE.Vector3();
 
 export class Player {
-    key = [0, 0];
-    ease = new THREE.Vector3();
+    // State parameters, updated by either server messages or an animation timestep
     position = new THREE.Vector3();
     up = new THREE.Vector3(0, 1, 0);
     rotate = new THREE.Quaternion();
-    current = 'Idle';
-    fadeDuration = 0.5;
-    runVelocity = 5;
-    walkVelocity = 1.8;
-    rotateSpeed = 0.05;
+    movementState = 'Idle';
 
     // Is this this the local player that we need to focus on?
     tracking = false;
+
+    // Tracks changes in movement state, useful for animation transitions
+    movementStatePrevious = 'Idle';
 
     // Handle to the global context of our demo
     context: Context
@@ -125,80 +133,80 @@ export class Player {
             this.mixer.update( dt );
         }
 
-        if(!this.tracking) {
-            // Remote player : Just update position
-            if(this.playerGroup) {
-                this.playerGroup.position.copy( this.position );
-            }
-            return;
+        // Animation transition
+
+        if(this.tracking) { // Local player input
+            let active = key[0] === 0 && key[1] === 0 ? false : true;
+
+            this.movementStatePrevious = this.movementState;
+            this.movementState = active ? (key[2] ? 'Run' : 'Walk') : 'Idle';
         }
 
-        const azimut = this.context.orbitControls.getAzimuthalAngle();
+        if ( this.movementState != this.movementStatePrevious && this.actions ){
+            const current = this.actions[this.movementState];
+            const old = this.actions[this.movementStatePrevious];
 
-        let active = this.key[0] === 0 && this.key[1] === 0 ? false : true;
-        let play = active ? (this.key[2] ? 'Run' : 'Walk') : 'Idle';
-
-        // change animation
-
-        if ( this.current != play && this.actions ){
-            const current = this.actions[play];
-            const old = this.actions[this.current];
-            this.current = play;
-
-            if( settings.fixe_transition ){
-                current.reset()
-                current.weight = 1.0;
-                current.stopFading()
-                old.stopFading();
-                // sycro if not idle
-                if ( play !== 'Idle' ) current.time = old.time * ( current.getClip().duration / old.getClip().duration );
-                old._scheduleFading( this.fadeDuration, old.getEffectiveWeight(), 0 );
-                current._scheduleFading( this.fadeDuration, current.getEffectiveWeight(), 1 );	
-                current.play();
-            } else {
-                setWeight( current, 1.0 );
-                old.fadeOut(this.fadeDuration);
-                current.reset().fadeIn( this.fadeDuration ).play();
-            }
-
+            setWeight( current, 1.0 );
+            old.fadeOut(FADE_DURATION);
+            current.reset().fadeIn( FADE_DURATION).play();
         }
 
-        // move object
+        // Move THREE js objects
 
-        if ( this.current !== 'Idle' && this.playerGroup) {
-            // run/walk velocity
-            let velocity = this.current == 'Run' ? this.runVelocity : this.walkVelocity;
+        if ( this.movementState !== 'Idle' && this.playerGroup) {
+            const velocity = this.movementState == 'Run' ? RUN_VELOCITY : WALK_VELOCITY;
 
-            // direction with key
-            this.ease.set( this.key[1], 0, this.key[0] ).multiplyScalar( velocity * dt );
+            if (this.tracking) {
+                // Local player, need to use the camera view
+                const azimut = this.context.orbitControls.getAzimuthalAngle();
 
-            // calculate camera direction
-            let angle = unwrapRad( Math.atan2( this.ease.x, this.ease.z ) + azimut );
-            this.rotate.setFromAxisAngle( this.up, angle );
-            
-            // apply camera angle on ease
-            this.ease.applyAxisAngle( this.up, azimut );
+                // direction with key
+                ease.set( key[1], 0, key[0] ).multiplyScalar( velocity * dt );
 
-            this.position.add( this.ease );
-            this.context.camera.position.add( this.ease );
+                // calculate camera direction
+                let angle = unwrapRad( Math.atan2( ease.x, ease.z ) + azimut );
+                this.rotate.setFromAxisAngle( this.up, angle );
+                
+                // apply camera angle on ease
+                ease.applyAxisAngle( this.up, azimut );
+
+                this.position.add( ease );
+                this.context.camera.position.add( ease );
+
+                this.context.orbitControls.target.copy( this.position ).add({x:0, y:1, z:0});
+                this.context.followGroup.position.copy( this.position );
+
+                // decale floor at infinie
+                let dx = ( this.position.x - this.context.floor.position.x );
+                let dz = ( this.position.z - this.context.floor.position.z );
+                if( Math.abs(dx) > this.context.floorDecale ) this.context.floor.position.x += dx;
+                if( Math.abs(dz) > this.context.floorDecale ) this.context.floor.position.z += dz;
+            }
 
             this.playerGroup.position.copy( this.position );
-            this.playerGroup.quaternion.rotateTowards( this.rotate, this.rotateSpeed );
+            this.playerGroup.quaternion.rotateTowards( this.rotate, ROTATE_SPEED );
 
-            this.context.orbitControls.target.copy( this.position ).add({x:0, y:1, z:0});
-            this.context.followGroup.position.copy( this.position );
-
-            // decale floor at infinie
-            let dx = ( this.position.x - this.context.floor.position.x );
-            let dz = ( this.position.z - this.context.floor.position.z );
-            if( Math.abs(dx) > this.context.floorDecale ) this.context.floor.position.x += dx;
-            if( Math.abs(dz) > this.context.floorDecale ) this.context.floor.position.z += dz;
         }
     }
 
-    // Update the position
-    setPosition(pos: THREE.Vector3) {
-        this.position.copy(pos);
+    // Update position, angle etc.
+    setState(state: PlayerState) {
+        this.movementStatePrevious = this.movementState;
+
+        this.position.fromArray(state.position);
+        this.up.fromArray(state.up);
+        this.rotate.fromArray(state.rotate);
+        this.movementState = state.movement_state;
+    }
+
+    // Retrieve player state
+    getState(): PlayerState {
+        return {
+            position: this.position.toArray(),
+            up: this.up.toArray(),
+            rotate: this.rotate.toArray(),
+            movement_state: this.movementState
+        } 
     }
 
     // Bind the current player instance to the browser controls
@@ -223,12 +231,10 @@ export class Player {
             panel.add( settings, 'show_skeleton' ).onChange( (b) => { 
                 if(this.skeleton) { this.skeleton.visible = b; }
             });
-            panel.add( settings, 'fixe_transition' );
         }
     }
 
     #onKeyDown( event: KeyboardEvent ) {
-        const key = this.key;
         switch ( event.code ) {
             case 'ArrowUp': case 'KeyW': case 'KeyZ': key[0] = -1; break;
             case 'ArrowDown': case 'KeyS': key[0] = 1; break;
@@ -239,7 +245,6 @@ export class Player {
     }
 
     #onKeyUp( event: KeyboardEvent ) {
-        const key = this.key;
         switch ( event.code ) {
             case 'ArrowUp': case 'KeyW': case 'KeyZ': key[0] = key[0]<0 ? 0:key[0]; break;
             case 'ArrowDown': case 'KeyS': key[0] = key[0]>0 ? 0:key[0]; break;
@@ -260,7 +265,6 @@ function setWeight( action: THREE.AnimationAction, weight: number ) {
     action.setEffectiveTimeScale( 1 );
     action.setEffectiveWeight( weight );
 }
-
 
 function unwrapRad(r: number) {
     return Math.atan2(Math.sin(r), Math.cos(r));
