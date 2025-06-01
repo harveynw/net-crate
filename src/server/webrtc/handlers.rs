@@ -32,7 +32,7 @@ pub fn configure_data_channel(data_channel: &Arc<RTCDataChannel>, emit: mpsc::Se
         let emit = emit.clone();
         data_channel.on_message(Box::new(move |msg| {
             info!("Data channel message");
-            emit.try_send(RTCEvent::MessageReceived(msg.data.to_vec())).expect("Parent actor should be alive.");
+            emit.try_send(RTCEvent::ApplicationMessageReceived(msg.data.to_vec())).expect("Parent actor should be alive.");
             Box::pin(async {})
         }));
     }

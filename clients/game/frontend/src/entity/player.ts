@@ -23,7 +23,6 @@ let panel: GUI | null = null;
 
 let settings = {
     show_skeleton:false,
-    fixe_transition: true,
 };
 
 // Current key inputs
@@ -97,6 +96,7 @@ export class Player {
             //
 
             const animations = gltf.animations;
+            console.log(animations);
 
             this.mixer = new THREE.AnimationMixer( model );
 

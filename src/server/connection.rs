@@ -31,7 +31,7 @@ pub enum ConnectionEvent {
 enum ConnectionHandleMessage {
     SendReliable(Vec<u8>),
     SendUnreliable(Vec<u8>),
-    Receive(Vec<u8>),
+    ReceiveApplicationMessage(Vec<u8>),
     ReceiveSignalling(String),
     ReceiveWebSocketClose,
     HandleWebRTCEvent(RTCEvent)
@@ -80,7 +80,7 @@ impl ConnectionHandle {
                             Ok(message) => {
                                 info!("Stream gave {:?}", message);
                                 match message {
-                                    WebSocketMessage::Binary(bytes) => actor.handle_message(ConnectionHandleMessage::Receive(bytes.to_vec())),
+                                    WebSocketMessage::Binary(bytes) => actor.handle_message(ConnectionHandleMessage::ReceiveApplicationMessage(bytes.to_vec())),
                                     WebSocketMessage::Text(text) => actor.handle_message(ConnectionHandleMessage::ReceiveSignalling(text.to_string())),
                                     WebSocketMessage::Close(_) => {
                                         info!("Received web socket close frame from client");
@@ -156,7 +156,7 @@ impl Actor {
             ConnectionHandleMessage::ReceiveSignalling(message) => {
                 self.rtc.receive_signalling_message(message);
             },
-            ConnectionHandleMessage::Receive(bytes) => {
+            ConnectionHandleMessage::ReceiveApplicationMessage(bytes) => {
                 self.emit.try_send((self.id, ConnectionEvent::MessageReceived(bytes))).expect("Parent actor should be alive.");
             },
             ConnectionHandleMessage::ReceiveWebSocketClose => {
@@ -176,7 +176,7 @@ impl Actor {
             RTCEvent::Closed => {
                 self.emit.try_send((self.id, ConnectionEvent::ConnectionTerminated)).expect("Parent actor should be alive.");
             },
-            RTCEvent::MessageReceived(bytes) => {
+            RTCEvent::ApplicationMessageReceived(bytes) => {
                 self.emit.try_send((self.id, ConnectionEvent::MessageReceived(bytes))).expect("Parent actor should be alive.");
             },
             RTCEvent::EmitSignallingMessage(message) => {

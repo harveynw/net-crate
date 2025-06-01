@@ -1,12 +1,6 @@
 use log::{info, warn};
+use net::{EventQueue, Server};
 use std::time::{Duration, Instant};
-
-use queue::EventQueue;
-use server::Server;
-
-mod event;
-mod server;
-mod queue;
 
 /*
     Example server:
@@ -26,7 +20,7 @@ fn main() {
     event_loop(server, queue);
 }
 
-fn event_loop(server: Server, mut queue: EventQueue) {
+fn event_loop(_server: Server, mut queue: EventQueue) {
     // Target 60Hz: ~16.67ms per frame
     let target_frame_time = Duration::from_nanos(1_000_000_000 / 60);
 

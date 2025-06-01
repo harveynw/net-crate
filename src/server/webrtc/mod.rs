@@ -1,19 +1,33 @@
+use signal::handle_signalling_message;
 use std::sync::{Arc, LazyLock};
 
-use log::{info, warn};
 use tokio::sync::mpsc;
 use webrtc::{api::{APIBuilder, API}, data_channel::RTCDataChannel, peer_connection::RTCPeerConnection};
 
 /// WebRTC server instance
 static API: LazyLock<API> = LazyLock::new(|| {
     APIBuilder::new().build()
+    /*
+    let mut s = SettingEngine::default();
+
+    let socket = Handle::current().block_on(async {
+        tokio::net::UdpSocket::bind("0.0.0.0:3001").await.unwrap()
+    });
+    s.set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(
+        UDPMuxParams::new(socket)
+    )));
+
+    APIBuilder::new()
+        .with_setting_engine(s)
+        .build()
+    */
 });
 
 #[derive(Debug)]
 pub enum RTCEvent {
     Opened,
     Closed,
-    MessageReceived(Vec<u8>),
+    ApplicationMessageReceived(Vec<u8>),
     EmitSignallingMessage(String)
 }
 
@@ -90,20 +104,8 @@ impl Actor {
             RTCHandleMessage::ReceiveSignalling(message) => {
                 let peer_connection = Arc::clone(&self.peer_connection);
 
-                info!("Received signalling : {}", message);
                 tokio::spawn(async move {
-                    let signal = signal::parse_signalling_message(message);
-
-                    match signal {
-                        signal::IncomingSignal::SDP(desc) => {
-                            peer_connection.set_remote_description(desc).await.expect("Should have set remote description");
-                        },
-                        signal::IncomingSignal::ICECandidate(ice) => {
-                            if let Err(err) = peer_connection.add_ice_candidate(ice.clone()).await {
-                                warn!("ICE Candidate not accepted:\n {}\n{:?}", serde_json::to_string(&ice).unwrap(), err);
-                            }
-                        },
-                    }
+                    handle_signalling_message(peer_connection, message).await;
                 });
             },
         }
