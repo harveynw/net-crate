@@ -57,7 +57,7 @@ fn handle_event(event: Event) {
 
 With recent improvements in coding agents, there has been a surge in AI-generated web games. However, the multiplayer experience of these demonstrations still tends to be poor. 
 
-This usually, in part, down to the unecessary overhead relying on websockets for communication. WebRTC provides a way to improve on this, supporting unordered and unreliable messaging, but is more complex to setup and usually beyond the abilities of current LLMs to get right. This library provides a simple way to do so, with sensible defaults.
+This is usually, in part, down to the unnecessary overhead introduced by relying on websockets for communication. WebRTC provides a way to improve on this, supporting unordered and unreliable messaging, but is more complex to setup and usually beyond the abilities of current LLMs to get right. This library provides a simple way to do so, with sensible defaults.
 
 ### Connecting as a client
 
