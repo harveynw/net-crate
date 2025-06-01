@@ -66,13 +66,15 @@ This crate just operates on the server-side. For your frontend, you will need to
 The [clients folder 📁](clients/) contains simple demonstrations for doing this.
 
 <details>
-<summary>Typical procedure</summary>
-- Client opens websocket connection with the server. Server accepts.
-- Server sends an SDP offer and ICE candidate(s) to Client in text-mode.
-- Client sends an SDP answer and ICE candidate(s) to the Server in text-mode. 
-- If the above succeeds, an `Event::Open` is pushed to the event queue.
-- Client/Server exchange messages over websockets in binary-mode, or using the webrtc datachannel.
-- When either communication channel closes, an `Event::Closed` is pushed to the event queue.
+    <summary>Sketch of the procedure for joining</summary>
+    <ul>
+        <li>Client opens websocket connection with the server. Server accepts.</li>
+        <li>Server sends an SDP offer and ICE candidate(s) to Client in text-mode.</li>
+        <li>Client sends an SDP answer and ICE candidate(s) to the Server in text-mode.</li>
+        <li>If the above succeeds, an <code>Event::Open</code> is pushed to the event queue.</li>
+        <li>Client/Server exchange messages over websockets in binary-mode, or using the webrtc datachannel.</li>
+        <li>When either communication channel closes, an <code>Event::Closed</code> is pushed to the event queue.</li>
+    </ul>
 </details>
 
 ### License
