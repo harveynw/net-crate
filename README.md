@@ -1,6 +1,6 @@
 # net
 
-Rust library for communicating with peers over websockets and webrtc.
+Rust library for communicating with peers using WebSockets and WebRTC.
 
 Designed for games and realtime applications in the browser, which may not require every message to be ordered and reliable.
 
@@ -15,8 +15,8 @@ cargo add net --path net
 ### Usage
 
 The API is extremely simple:
-- ➡️ Send messages by calling .send() on `Server`.
-- 🔄 Monitor for messages by emptying an `EventQueue` at whatever frequency your application requires.
+- ➡️ Send messages by calling .send_reliable() or .send_unreliable() on `Server`.
+- 🔄 Monitor for messages by emptying an `EventQueue` using .pop_all() at whatever frequency your application requires.
 
 Both objects are threadsafe and can be freely cloned.
 
@@ -61,18 +61,20 @@ This usually, in part, down to the unecessary overhead relying on websockets for
 
 ### Connecting as a client
 
-This crate just operates on the server-side. For your frontend, you will need to setup connecting via websockets and accepting signalling messages that the server responds with. 
+This crate just operates on the server-side. For your frontend, you will need to setup connecting via websockets and accepting signalling messages that the server will automatically send. 
 
-The [📁 clients folder](clients/) contains simple demonstrations for doing this.
+The [clients folder 📁](clients/) contains simple demonstrations for doing this.
 
-##### Typical procedure:
+<details>
+<summary>Typical procedure</summary>
 - Client opens websocket connection with the server. Server accepts.
 - Server sends an SDP offer and ICE candidate(s) to Client in text-mode.
-- Client sends an SDP answer and ICE candidates to the Server in text-mode. 
+- Client sends an SDP answer and ICE candidate(s) to the Server in text-mode. 
 - If the above succeeds, an `Event::Open` is pushed to the event queue.
-- Client/Server exchange messages over websockets in binary-mode, or using the webrct datachannel.
-- When either the websocket or webrtc data channel fails/closes, an `Event::Closed` is pushed to the event queue.
+- Client/Server exchange messages over websockets in binary-mode, or using the webrtc datachannel.
+- When either communication channel closes, an `Event::Closed` is pushed to the event queue.
+</details>
 
-### License
+### License
 
-MIT, except for parts which mention otherwise. 
+MIT (except for parts which mention otherwise) 
