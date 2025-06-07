@@ -6,6 +6,7 @@
 //! - Notify that connection is dead
 
 use log::info;
+use webrtc::RtcApiHandle;
 use std::collections::HashMap;
 use tokio::{net::{TcpListener, TcpStream}, runtime::Builder, select, sync::mpsc};
 
@@ -66,8 +67,13 @@ impl Server {
         let queue_cloned = queue.clone();
         std::thread::spawn(move || {
             rt.block_on(async move {
-                let mut actor = Actor::new(sender_connection, queue_cloned);
+                // Intialse WebRTC API actor
+                let api = RtcApiHandle::new(&listen_addr);
 
+                // Create server actor
+                let mut actor = Actor::new(sender_connection, queue_cloned, api);
+
+                // Create websocket server
                 let listener = TcpListener::bind(&listen_addr).await.expect("Should be able to bind to listen_addr");
                 info!("Websockets server bound to {}", listen_addr);
 
@@ -126,15 +132,18 @@ struct Actor {
     // Hold reference to the message queue, on which we can push incoming messages.
     queue: EventQueue,
     // Hold a sender to clone and pass to new connection actors, so they can emit events to us.
-    connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>
+    connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>,
+    // Handle to WebRTC API that is passed to new connections
+    api: RtcApiHandle
 }
 
 impl Actor {
-    pub fn new(connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>, queue: EventQueue) -> Self {
+    pub fn new(connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>, queue: EventQueue, api: RtcApiHandle) -> Self {
         Self {
             connections: HashMap::new(),
             queue,
-            connection_emit
+            connection_emit,
+            api,
         }
     }
 
@@ -168,7 +177,7 @@ impl Actor {
                 let id = self.next_free_identifier();
 
                 // Spawn actor
-                let handle = ConnectionHandle::new(id, self.connection_emit.clone(), tcp_stream);
+                let handle = ConnectionHandle::new(id, self.connection_emit.clone(), tcp_stream, self.api.clone());
 
                 // Store ownership of handle whilst it initialises
                 self.connections.insert(id, connection_state::Connection::new(handle));

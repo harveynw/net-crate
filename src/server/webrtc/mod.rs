@@ -1,27 +1,10 @@
+pub use api::RtcApiHandle;
 use signal::handle_signalling_message;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use webrtc::{api::{APIBuilder, API}, data_channel::RTCDataChannel, peer_connection::RTCPeerConnection};
+use webrtc::{data_channel::RTCDataChannel, peer_connection::RTCPeerConnection};
 
-/// WebRTC server instance
-static API: LazyLock<API> = LazyLock::new(|| {
-    APIBuilder::new().build()
-    /*
-    let mut s = SettingEngine::default();
-
-    let socket = Handle::current().block_on(async {
-        tokio::net::UdpSocket::bind("0.0.0.0:3001").await.unwrap()
-    });
-    s.set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(
-        UDPMuxParams::new(socket)
-    )));
-
-    APIBuilder::new()
-        .with_setting_engine(s)
-        .build()
-    */
-});
 
 #[derive(Debug)]
 pub enum RTCEvent {
@@ -40,18 +23,20 @@ enum RTCHandleMessage {
 mod signal;
 /// Configures the RTCPeerConnection
 mod handlers;
+/// Handles the WebRTC API, which initialises new data channels over UDP
+mod api;
 
 pub struct RTCHandle {
     sender: mpsc::Sender<RTCHandleMessage>
 }
 
 impl RTCHandle {
-    pub fn new(emit: mpsc::Sender<RTCEvent>) -> Self {
+    pub fn new(emit: mpsc::Sender<RTCEvent>, mut api: RtcApiHandle) -> Self {
         let (sender, mut receiver) = mpsc::channel(1024);
 
         tokio::spawn(async move {
             // Create a new RTCPeerConnection
-            let peer_connection = Arc::new(API.new_peer_connection(Default::default()).await.expect("Should have been created."));
+            let peer_connection = api.new_peer_connection().await;
 
             // Create a data channel (only on the initiator side)
             let data_channel = peer_connection.create_data_channel("game", None).await.expect("Should have been created.");

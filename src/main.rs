@@ -13,9 +13,7 @@ fn main() {
 
     info!("Starting...");
 
-    let (mut server , queue) = Server::new("127.0.0.1:3000");
-
-    server.send_reliable(0, "hello".as_bytes().to_vec());
+    let (server , queue) = Server::new("127.0.0.1:3000");
 
     event_loop(server, queue);
 }

@@ -25,6 +25,7 @@ use log::info;
 use net::{Event, Server};
 
 fn main() {
+    // TCP/UDP server on port 3000
     let (mut server, mut queue) = Server::new("127.0.0.1:3000");
 
     loop {

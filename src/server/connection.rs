@@ -16,7 +16,7 @@ use tokio_tungstenite::tungstenite::Message as WebSocketMessage;
 
 use crate::{event::Identifier, server::webrtc::RTCHandle};
 
-use super::webrtc::RTCEvent;
+use super::webrtc::{RTCEvent, RtcApiHandle};
 
 /// Events emitted by the connection actor
 #[derive(Debug)]
@@ -45,7 +45,7 @@ pub struct ConnectionHandle {
 impl ConnectionHandle {
 
     /// Spawn a connection actor to service a TcpStream and establish a WebRTC data channel.
-    pub fn new(id: Identifier, emit: mpsc::Sender<(Identifier, ConnectionEvent)>, stream: TcpStream) -> Self {
+    pub fn new(id: Identifier, emit: mpsc::Sender<(Identifier, ConnectionEvent)>, stream: TcpStream, api: RtcApiHandle) -> Self {
         let (sender, mut receiver) = mpsc::channel(1024);
 
         tokio::spawn(async move {
@@ -65,7 +65,7 @@ impl ConnectionHandle {
             let (sender_rtc, mut receiver_rtc) = mpsc::channel(1024);
 
             // Create webrtc actor
-            let actor_rtc = RTCHandle::new(sender_rtc);
+            let actor_rtc = RTCHandle::new(sender_rtc, api);
 
             // Create actor
             let mut actor = Actor::new(id, emit, ws_sink, actor_rtc);
