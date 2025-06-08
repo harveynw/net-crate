@@ -62,6 +62,11 @@ With recent improvements in coding agents, there has been a surge in AI-generate
 
 This is usually, in part, down to the unnecessary overhead introduced by relying on websockets for communication. WebRTC provides a way to improve on this, supporting unordered and unreliable messaging, but is more complex to setup and usually beyond the abilities of current LLMs to get right. This library provides a simple way to do so, with sensible defaults.
 
+### Limitations
+
+- There is no SSL support, and consequently no `wss://` support, in this crate. It is recommended to use a reverse proxy, like nginx, to upgrade traffic.
+- The usual maximum message size for both websockets and webrtc data channels apply, which may depend on the client implementation.
+
 ### Connecting as a client
 
 This crate just operates on the server-side. For your frontend, you will need to setup connecting via websockets and accepting signalling messages that the server will automatically send. 
