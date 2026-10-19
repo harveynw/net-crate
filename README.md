@@ -7,9 +7,9 @@ https://github.com/user-attachments/assets/91c10772-1902-4b49-8e7d-8087634b22a4
 
 Rust server that supports reliable and unreliable network communication with clients running in the browser. 
 
-The unreliable communication is designed for avoiding latency spikes in applications where ordering and delivery guarantees are less important, such as multiplayer games. This is achieved using WebRTC, which has a relatively complex API compared to WebSockets. This crate serves as a convenient implementation of the specific case where you wish to send arbitrary bytes.
+The unreliable feature is helpful for avoiding latency spikes in applications where ordering and delivery guarantees are less important, such as multiplayer games. This is achieved using WebRTC, which has a relatively complex API compared to WebSockets. This crate serves as a convenient implementation of the specific case where you wish to send small buffers of arbitrary bytes at high frequency.
 
-This is just the server component, you will need to arrange the necessary signalling logic on the client side. You can either view some examples connectors under `examples_clients` or ask a coding agent to write one.
+This crate is just the server component in a wider game system, you will need to arrange the necessary signalling logic on the client side. You can either view some examples connectors under `examples_clients` or ask a coding agent to write one.
 
 ### Install 
 
