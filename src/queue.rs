@@ -39,9 +39,9 @@ mod tests {
         let mut q = EventQueue::default();
 
         // Put three in
-        q.push(Event::Received(0, "Hello world!".as_bytes().to_vec()));
-        q.push(Event::Received(1, "Hello world!!".as_bytes().to_vec()));
-        q.push(Event::Received(2, "Hello world!!!".as_bytes().to_vec()));
+        q.push(Event::Received(0, "Hello world!".as_bytes().to_vec().into()));
+        q.push(Event::Received(1, "Hello world!!".as_bytes().to_vec().into()));
+        q.push(Event::Received(2, "Hello world!!!".as_bytes().to_vec().into()));
 
         let out = q.pop_all();
 

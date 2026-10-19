@@ -8,6 +8,7 @@
 //! - Uses binary message types for application messages
 //! - Uses utf8 text message types for webrtc signalling (ICE candidates etc.)
 
+use bytes::Bytes;
 use log::{info, warn};
 use tokio_tungstenite::WebSocketStream;
 use tokio::{net::TcpStream, select, sync::mpsc};
@@ -16,7 +17,7 @@ use tokio_tungstenite::tungstenite::Message as WebSocketMessage;
 
 use crate::{event::Identifier, server::webrtc::RTCHandle};
 
-use super::webrtc::{RTCEvent, RtcApiHandle};
+use super::webrtc::{RTCEvent, RtcConfig};
 
 /// Events emitted by the connection actor
 #[derive(Debug)]
@@ -24,14 +25,14 @@ pub enum ConnectionEvent {
     /// Signals both websocket + webrtc connection is ready to send/receive messages.
     ConnectionEstablished, 
     ConnectionTerminated,
-    MessageReceived(Vec<u8>),
+    MessageReceived(Bytes),
 }
 
 /// Messages accepted by the connection actor
 enum ConnectionHandleMessage {
-    SendReliable(Vec<u8>),
-    SendUnreliable(Vec<u8>),
-    ReceiveApplicationMessage(Vec<u8>),
+    SendReliable(Bytes),
+    SendUnreliable(Bytes),
+    ReceiveApplicationMessage(Bytes),
     ReceiveSignalling(String),
     ReceiveWebSocketClose,
     HandleWebRTCEvent(RTCEvent)
@@ -45,7 +46,7 @@ pub struct ConnectionHandle {
 impl ConnectionHandle {
 
     /// Spawn a connection actor to service a TcpStream and establish a WebRTC data channel.
-    pub fn new(id: Identifier, emit: mpsc::Sender<(Identifier, ConnectionEvent)>, stream: TcpStream, api: RtcApiHandle) -> Self {
+    pub fn new(id: Identifier, emit: mpsc::Sender<(Identifier, ConnectionEvent)>, stream: TcpStream, rtc_config: RtcConfig) -> Self {
         let (sender, mut receiver) = mpsc::channel(1024);
 
         tokio::spawn(async move {
@@ -54,6 +55,7 @@ impl ConnectionHandle {
                 Ok(stream) => stream,
                 Err(err) => {
                     warn!("Failed websocket handshake: {}", err);
+                    let _ = emit.send((id, ConnectionEvent::ConnectionTerminated)).await;
                     return;
                 },
             };
@@ -65,7 +67,7 @@ impl ConnectionHandle {
             let (sender_rtc, mut receiver_rtc) = mpsc::channel(1024);
 
             // Create webrtc actor
-            let actor_rtc = RTCHandle::new(sender_rtc, api);
+            let actor_rtc = RTCHandle::new(sender_rtc, rtc_config);
 
             // Create actor
             let mut actor = Actor::new(id, emit, ws_sink, actor_rtc);
@@ -75,12 +77,16 @@ impl ConnectionHandle {
             // Event loop
             loop {
                 select! {
-                    Some(message_ws) = ws_stream.next() => {
+                    message_ws = ws_stream.next() => {
                         match message_ws {
-                            Ok(message) => {
+                            None => {
+                                actor.handle_message(ConnectionHandleMessage::ReceiveWebSocketClose);
+                                break;
+                            }
+                            Some(Ok(message)) => {
                                 info!("Stream gave {:?}", message);
                                 match message {
-                                    WebSocketMessage::Binary(bytes) => actor.handle_message(ConnectionHandleMessage::ReceiveApplicationMessage(bytes.to_vec())),
+                                    WebSocketMessage::Binary(bytes) => actor.handle_message(ConnectionHandleMessage::ReceiveApplicationMessage(bytes)),
                                     WebSocketMessage::Text(text) => actor.handle_message(ConnectionHandleMessage::ReceiveSignalling(text.to_string())),
                                     WebSocketMessage::Close(_) => {
                                         info!("Received web socket close frame from client");
@@ -90,7 +96,7 @@ impl ConnectionHandle {
                                     _ => {} // Ping-pong ignored
                                 }
                             },
-                            Err(err) => {
+                            Some(Err(err)) => {
                                 warn!("Websocket stream error: {}", err);
                                 actor.handle_message(ConnectionHandleMessage::ReceiveWebSocketClose);
                                 break
@@ -99,7 +105,11 @@ impl ConnectionHandle {
                     },
                     Some(event) = receiver_rtc.recv() => {
                         info!("Got RTCEvent: {:?}", event);
+                        let closed = matches!(event, RTCEvent::Closed);
                         actor.handle_message(ConnectionHandleMessage::HandleWebRTCEvent(event));
+                        if closed {
+                            break;
+                        }
                     }
                     message_handle = receiver.recv() => {
                         match message_handle {
@@ -120,11 +130,11 @@ impl ConnectionHandle {
         Self { sender }
     }
 
-    pub fn send_reliable(&mut self, bytes: Vec<u8>) {
+    pub fn send_reliable(&mut self, bytes: Bytes) {
         self.sender.try_send(ConnectionHandleMessage::SendReliable(bytes)).expect("Actor should be alive.");
     }
 
-    pub fn send_unreliable(&mut self, bytes: Vec<u8>) {
+    pub fn send_unreliable(&mut self, bytes: Bytes) {
         self.sender.try_send(ConnectionHandleMessage::SendUnreliable(bytes)).expect("Actor should be alive.");
     }
 }
@@ -132,23 +142,27 @@ impl ConnectionHandle {
 type WsSink = SplitSink<WebSocketStream<TcpStream>, tokio_tungstenite::tungstenite::Message>;
 
 struct Actor {
+    /// Unique identifier for this peer.
     id: Identifier,
+    /// Channel that provides a way to communicate with higher level actors that an event has occured on this connection. 
     emit: mpsc::Sender<(Identifier, ConnectionEvent)>,
-    send: mpsc::Sender<SinkMessage>,
+    /// Channel that acts as a sink for sending messages to the other peer across the websocket connection. 
+    ws_send: mpsc::Sender<SocketMessage>,
+    /// Handle for the actor which services the corresponding WebRTC connection for this peer.
     rtc: RTCHandle,
 }
 
 impl Actor {
     pub fn new(id: Identifier, emit: mpsc::Sender<(Identifier, ConnectionEvent)>, sink: WsSink, rtc: RTCHandle) -> Self {
-        let send = start_sink_task(sink);
+        let ws_send = start_sink_task(id, sink);
 
-        Self { id, emit, send, rtc }
+        Self { id, emit, ws_send, rtc }
     }
 
     pub fn handle_message(&mut self, message: ConnectionHandleMessage) {
         match message {
             ConnectionHandleMessage::SendReliable(bytes) => {
-                self.send.try_send(SinkMessage::Data(bytes)).expect("Sender task should be alive.");
+                self.ws_send.try_send(SocketMessage::Data(bytes)).expect("Sender task should be alive.");
             },
             ConnectionHandleMessage::SendUnreliable(bytes) => {
                 self.rtc.send_message(bytes)
@@ -180,32 +194,37 @@ impl Actor {
                 self.emit.try_send((self.id, ConnectionEvent::MessageReceived(bytes))).expect("Parent actor should be alive.");
             },
             RTCEvent::EmitSignallingMessage(message) => {
-                self.send.try_send(SinkMessage::Signalling(message)).expect("Sender task should be alive.");
+                self.ws_send.try_send(SocketMessage::Signalling(message)).expect("Sender task should be alive.");
             },
         }
     }
 }
 
-enum SinkMessage {
-    Data(Vec<u8>),
+/// Type representing everything we need to send over the websocket connection
+enum SocketMessage {
+    /// Arbitrary bytes 
+    Data(Bytes),
+    /// WebRTC signalling message 
     Signalling(String),
 }
 
 /// Spawns a task whose job is to forward messages into the provided sink, which is only possible in an async context.
 /// 
-/// Task finishes when returns when all senders are dropped.
-fn start_sink_task(mut sink: WsSink) -> mpsc::Sender<SinkMessage> {
-    let (sender, mut receiver) = mpsc::channel::<SinkMessage>(1024);
+/// Task finishes when all senders are dropped.
+fn start_sink_task(id: Identifier, mut sink: WsSink) -> mpsc::Sender<SocketMessage> {
+    let (sender, mut receiver) = mpsc::channel::<SocketMessage>(1024);
 
     tokio::spawn(async move {
         while let Some(message) = receiver.recv().await {
+            // Here we make the distinction between how application data and webrtc signalling is sent.
             let result = match message {
-                SinkMessage::Data(bytes) => sink.send(WebSocketMessage::Binary(bytes::Bytes::copy_from_slice(&bytes))).await,
-                SinkMessage::Signalling(message) => sink.send(WebSocketMessage::text(message)).await,
+                SocketMessage::Data(bytes) => sink.send(WebSocketMessage::Binary(bytes::Bytes::copy_from_slice(&bytes))).await,
+                SocketMessage::Signalling(message) => sink.send(WebSocketMessage::text(message)).await,
             };
                 
+            // Report any problems, but don't panic.
             if let Err(err) = result {
-                warn!("Error sending to websocket sink : {:?}", err);
+                warn!("Error sending to websocket sink : ({}), {:?}", id, err);
             }
         }
     });

@@ -1,14 +1,17 @@
 https://github.com/user-attachments/assets/91c10772-1902-4b49-8e7d-8087634b22a4
+<small>Multiplayer demo adapted from [this](https://threejs.org/examples/#webgl_animation_skinning_blending) THREE.js example.</small>
 
-# net
+# net crate
 
-Rust library for communicating with peers using WebSockets and WebRTC.
+Rust server that supports reliable and unreliable network communication with clients running in the browser. 
 
-Designed for games and realtime applications in the browser, which may not require every message to be ordered and reliable.
+The unreliable communication is designed for avoiding latency spikes in applications where ordering and delivery guarantees are less important, such as multiplayer games. This is achieved using WebRTC, which has a relatively complex API compared to WebSockets. This crate serves as a convenient implementation of the specific case where you wish to send arbitrary bytes.
+
+This is just the server component, you will need to arrange the necessary signalling logic on the client side. You can either view some examples connectors under `examples_clients` or ask a coding agent to write one.
 
 ### Install 
 
-Clone the repo, and then set as dependency in your `Cargo.toml`:
+Simplest strategy is to clone the repo, and then set as dependency in your `Cargo.toml`:
 
 ```bash
 cargo add net --path net
@@ -27,7 +30,7 @@ use log::info;
 use net::{Event, Server};
 
 fn main() {
-    // Server on port 3000 (tcp/udp)
+    // WebSocket server on TCP port 3000; WebRTC uses ephemeral UDP ports
     let (mut server, mut queue) = Server::new("127.0.0.1:3000");
 
     loop {
@@ -38,10 +41,10 @@ fn main() {
             .for_each(handle_event);
 
         // Send message to peer with ID '0' reliably (using a web socket)
-        server.send_reliable(0, "hello!".as_bytes().to_vec());
+        server.send_reliable(0, "hello!".as_bytes().into());
         
         // Send message to the same peer unreliably (using WebRTC data channel)
-        server.send_unreliable(0, "hello again!".as_bytes().to_vec());
+        server.send_unreliable(0, "hello again!".as_bytes().into());
 
         // sleep(...)
     }
@@ -56,29 +59,28 @@ fn handle_event(event: Event) {
 }
 ```
 
-### Motivation
+### Architecture
 
-With recent improvements in coding agents, there has been a surge in AI-generated web games. However, the multiplayer experience of these demonstrations still tends to be poor. 
+```
+ Browser                                         Server (This Crate)
+                                                                    
+                                                                    
+ WebSocket Client                                WebSocket Server   
+┌──────────────────┐                            ┌──────────────────┐
+│ Binary           ◄───Game Data (Reliable)─────► Binary           │
+└──────────────────┘                            └──────────────────┘
+┌──────────────────┐                            ┌──────────────────┐
+│ Text             ◄───WebRTC Signalling────────► Text             │
+└──────────────────┘                            └──────────────────┘
+                                                                    
+                                                                    
+ Web RTC DataChannel                             Web RTC DataChannel
+┌──────────────────┐                            ┌──────────────────┐
+│ Binary           ◄───Game Data (Unreliable)───► Binary           │
+└──────────────────┘                            └──────────────────┘
+```
 
-This is usually, in part, down to the unnecessary overhead introduced by relying on websockets for communication. WebRTC provides a way to improve on this, supporting unordered and unreliable messaging, but is more complex to setup and usually beyond the abilities of current LLMs to get right. This library provides a simple way to do so, with sensible defaults.
-
-### Connecting as a client
-
-This crate just operates on the server-side. For your frontend, you will need to setup connecting via websockets and accepting signalling messages that the server will automatically send. 
-
-The [clients folder 📁](clients/) contains simple demonstrations for doing this.
-
-<details>
-    <summary>Sketch of the procedure for joining</summary>
-    <ul>
-        <li>Client opens websocket connection with the server. Server accepts.</li>
-        <li>Server sends an SDP offer and ICE candidate(s) to Client in text-mode.</li>
-        <li>Client sends an SDP answer and ICE candidate(s) to the Server in text-mode.</li>
-        <li>If the above succeeds, an <code>Event::Open</code> is pushed to the event queue.</li>
-        <li>Client/Server exchange messages over websockets in binary-mode, or using the webrtc datachannel.</li>
-        <li>When either communication channel closes, an <code>Event::Closed</code> is pushed to the event queue.</li>
-    </ul>
-</details>
+The WebSocket listener uses the configured TCP port. Each WebRTC peer binds its own ephemeral UDP ports. 
 
 ### License
 

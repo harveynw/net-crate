@@ -5,8 +5,9 @@
 //! - Kill the connection if asked
 //! - Notify that connection is dead
 
+use bytes::Bytes;
 use log::info;
-use webrtc::RtcApiHandle;
+use webrtc::RtcConfig;
 use std::collections::HashMap;
 use tokio::{net::{TcpListener, TcpStream}, runtime::Builder, select, sync::mpsc};
 
@@ -30,9 +31,9 @@ enum ActorMessage {
     */
 
     Kill(Identifier),
-    SendReliable(Identifier, Vec<u8>),
-    SendUnreliable(Identifier, Vec<u8>),
-    Broadcast(Vec<u8>)
+    SendReliable(Identifier, Bytes),
+    SendUnreliable(Identifier, Bytes),
+    Broadcast(Bytes)
 }
 
 /// Handle to a websocket + webrtc server, used for sending messages and killing active connections.
@@ -67,15 +68,12 @@ impl Server {
         let queue_cloned = queue.clone();
         std::thread::spawn(move || {
             rt.block_on(async move {
-                // Intialse WebRTC API actor
-                let api = RtcApiHandle::new(&listen_addr);
-
-                // Create server actor
-                let mut actor = Actor::new(sender_connection, queue_cloned, api);
-
                 // Create websocket server
                 let listener = TcpListener::bind(&listen_addr).await.expect("Should be able to bind to listen_addr");
                 info!("Websockets server bound to {}", listen_addr);
+
+                let rtc_config = RtcConfig::new(listener.local_addr().expect("Listener should have an address").ip());
+                let mut actor = Actor::new(sender_connection, queue_cloned, rtc_config);
 
                 // Event loop : Poll actor messages, tcp server and connection events.
                 loop {
@@ -109,17 +107,17 @@ impl Server {
     }
 
     /// Send a message down a connection with the given identifier. Uses websockets as a reliable communication protocol.
-    pub fn send_reliable(&mut self, id: Identifier, bytes: Vec<u8>) {
+    pub fn send_reliable(&mut self, id: Identifier, bytes: Bytes) {
         self.sender.blocking_send(ActorMessage::SendReliable(id, bytes)).expect("Actor should be alive");
     }
 
     /// Send a message down a connection with the given identifier. Uses a webrtc datachannel over UDP as an unreliable communication protocol.
-    pub fn send_unreliable(&mut self, id: Identifier, bytes: Vec<u8>) {
+    pub fn send_unreliable(&mut self, id: Identifier, bytes: Bytes) {
         self.sender.blocking_send(ActorMessage::SendUnreliable(id, bytes)).expect("Actor should be alive");
     }
 
     /// Broadcast a message reliably down all active connections.
-    pub fn broadcast(&mut self, bytes: Vec<u8>) {
+    pub fn broadcast(&mut self, bytes: Bytes) {
         self.sender.blocking_send(ActorMessage::Broadcast(bytes)).expect("Actor should be alive");
     }
 
@@ -133,17 +131,17 @@ struct Actor {
     queue: EventQueue,
     // Hold a sender to clone and pass to new connection actors, so they can emit events to us.
     connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>,
-    // Handle to WebRTC API that is passed to new connections
-    api: RtcApiHandle
+    // WebRTC settings cloned for each new connection
+    rtc_config: RtcConfig
 }
 
 impl Actor {
-    pub fn new(connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>, queue: EventQueue, api: RtcApiHandle) -> Self {
+    pub fn new(connection_emit: mpsc::Sender<(Identifier, ConnectionEvent)>, queue: EventQueue, rtc_config: RtcConfig) -> Self {
         Self {
             connections: HashMap::new(),
             queue,
             connection_emit,
-            api,
+            rtc_config,
         }
     }
 
@@ -158,13 +156,16 @@ impl Actor {
                 match connection_event {
                     ConnectionEvent::ConnectionEstablished => {
                         // Set to ready
-                        self.connections.get_mut(&id).expect("Connection should be stored here").set_alive();
-                        self.queue.push(Event::Open(id));
+                        if let Some(connection) = self.connections.get_mut(&id) {
+                            connection.set_alive();
+                            self.queue.push(Event::Open(id));
+                        }
                     },
                     ConnectionEvent::ConnectionTerminated => {
                         // Kill connection actor by dropping its handle
-                        self.connections.remove(&id).expect("Connection should be stored here");
-                        self.queue.push(Event::Closed(id));
+                        if self.connections.remove(&id).is_some() {
+                            self.queue.push(Event::Closed(id));
+                        }
                     },
                     ConnectionEvent::MessageReceived(message) => {
                         // Push to queue
@@ -177,7 +178,7 @@ impl Actor {
                 let id = self.next_free_identifier();
 
                 // Spawn actor
-                let handle = ConnectionHandle::new(id, self.connection_emit.clone(), tcp_stream, self.api.clone());
+                let handle = ConnectionHandle::new(id, self.connection_emit.clone(), tcp_stream, self.rtc_config.clone());
 
                 // Store ownership of handle whilst it initialises
                 self.connections.insert(id, connection_state::Connection::new(handle));

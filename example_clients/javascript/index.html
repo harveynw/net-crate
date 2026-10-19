@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>js client</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; max-width: 850px; margin: 3rem auto; padding: 0 1rem; }
+    form, .actions { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; margin: 1rem 0; }
+    label { display: grid; gap: .3rem; }
+    input, select, button { font: inherit; padding: .5rem; }
+    #port { width: 6rem; }
+    #message { width: min(30rem, 80vw); }
+    pre { background: #f1f3f5; padding: 1rem; min-height: 12rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+  <script src="client.js" defer></script>
+</head>
+<body>
+  <h1>JavaScript client</h1>
+  <p>Demonstrates opening a WebSocket connection and a WebRTC data channel.</p>
+  <form id="connect-form">
+    <label>Server address <input id="host" value="127.0.0.1" required></label>
+    <label>Port <input id="port" type="number" min="1" max="65535" value="3000" required></label>
+    <label>WebSocket scheme <select id="scheme"><option>ws</option><option>wss</option></select></label>
+    <button id="connect" type="submit">Connect</button>
+    <button id="disconnect" type="button" disabled>Disconnect</button>
+  </form>
+  <label>Message <input id="message" value="Hello from JavaScript!"></label>
+  <div class="actions">
+    <button id="reliable" disabled>Send reliable</button>
+    <button id="unreliable" disabled>Send unreliable</button>
+  </div>
+  <p id="status" role="status">Disconnected</p>
+  <pre id="log" aria-label="Messages"></pre>
+</body>
+</html>

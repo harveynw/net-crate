@@ -1,52 +1,36 @@
-use log::info;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use webrtc::{data_channel::RTCDataChannel, peer_connection::RTCPeerConnection};
+use webrtc::peer_connection::{
+    PeerConnectionEventHandler, RTCIceCandidate, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
+};
 
-use super::{signal, RTCEvent};
+/// Events consumed by the connection actor, after its SDP offer has been queued.
+pub enum PeerEvent {
+    IceCandidate(RTCIceCandidate),
+    Closed,
+}
 
-/// Configures the event handlers of an RTCDataChannel to log and send appropriate signals down the provided 'emit' channel.
-pub fn configure_data_channel(data_channel: &Arc<RTCDataChannel>, emit: mpsc::Sender<RTCEvent>) {
-    // Notify parent actor that connection is open
-    {
-        let emit = emit.clone();
-        data_channel.on_open(Box::new(move || {
-            info!("Data channel open");
-            emit.try_send(RTCEvent::Opened).expect("Parent actor should be alive.");
-            Box::pin(async {})
-        }));
-    }
-    
-    // Notify parent actor that connection is closed
-    {
-        let emit = emit.clone();
-        data_channel.on_close(Box::new(move || {
-            info!("Data channel close");
-            let _ = emit.try_send(RTCEvent::Closed);
-            Box::pin(async {})
-        }));
-    }
+pub struct PeerHandler {
+    emit: mpsc::UnboundedSender<PeerEvent>,
+}
 
-    // Forward received messages to parent actor
-    {
-        let emit = emit.clone();
-        data_channel.on_message(Box::new(move |msg| {
-            info!("Data channel message");
-            emit.try_send(RTCEvent::ApplicationMessageReceived(msg.data.to_vec())).expect("Parent actor should be alive.");
-            Box::pin(async {})
-        }));
+impl PeerHandler {
+    pub fn new(emit: mpsc::UnboundedSender<PeerEvent>) -> Self {
+        Self { emit }
     }
 }
 
-/// Configures the event handlers of an RTCPeerConnection to log and send appropriate signals down the provided 'emit' channel.
-pub fn configure_peer_connection(peer_connection: &RTCPeerConnection, emit: mpsc::Sender<RTCEvent>) {
-    // Handle ICE candidate challenges by sending them by another channel (actor emits them)
-    peer_connection.on_ice_candidate(Box::new(move |candidate| {
-        if let Some(candidate) = candidate {
-            emit.try_send(
-                RTCEvent::EmitSignallingMessage(signal::generate_ice_candidate_message(candidate))
-            ).expect("Parent actor should be alive.");
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for PeerHandler {
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        let _ = self.emit.send(PeerEvent::IceCandidate(event.candidate));
+    }
+
+    async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        if matches!(
+            state,
+            RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
+        ) {
+            let _ = self.emit.send(PeerEvent::Closed);
         }
-        Box::pin(async {})
-    }));
+    }
 }
