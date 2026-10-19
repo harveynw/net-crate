@@ -82,6 +82,10 @@ fn handle_event(event: Event) {
 
 The WebSocket listener uses the configured TCP port. Each WebRTC peer binds its own ephemeral UDP ports. 
 
+### Limitations
+
+- There is no SSL support, and consequently no `wss://` support, in this crate. It is recommended to use a reverse proxy, like nginx, to upgrade traffic.
+
 ### License
 
 MIT (except for parts which mention otherwise) 
