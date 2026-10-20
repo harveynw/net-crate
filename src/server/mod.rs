@@ -6,12 +6,13 @@
 //! - Notify that connection is dead
 
 use bytes::Bytes;
-use log::info;
+use log::{info, warn};
 use webrtc::RtcConfig;
 use std::collections::HashMap;
 use tokio::{net::{TcpListener, TcpStream}, runtime::Builder, select, sync::mpsc};
 
 use connection::{ConnectionEvent, ConnectionHandle};
+use connection_state::{ConnectingConnection, Connection};
 use crate::{event::{Event, Identifier}, queue::EventQueue};
 
 mod webrtc;
@@ -126,7 +127,7 @@ impl Server {
 
 struct Actor {
     // Hold ownership of handles to connection actors.
-    connections: HashMap<Identifier, connection_state::Connection>,
+    connections: HashMap<Identifier, Connection>,
     // Hold reference to the message queue, on which we can push incoming messages.
     queue: EventQueue,
     // Hold a sender to clone and pass to new connection actors, so they can emit events to us.
@@ -155,10 +156,13 @@ impl Actor {
                 info!("Event registered: {:?}", connection_event);
                 match connection_event {
                     ConnectionEvent::ConnectionEstablished => {
-                        // Set to ready
-                        if let Some(connection) = self.connections.get_mut(&id) {
-                            connection.set_alive();
-                            self.queue.push(Event::Open(id));
+                        match self.connections.remove(&id) {
+                            Some(Connection::Connecting(connection)) => {
+                                self.connections.insert(id, Connection::Ready(connection.into_ready()));
+                                self.queue.push(Event::Open(id));
+                            },
+                            Some(Connection::Ready(_)) => unreachable!("Duplicate ConnectionEstablished for connection={id}"),
+                            None => unreachable!("ConnectionEstablished for untracked connection={id}"),
                         }
                     },
                     ConnectionEvent::ConnectionTerminated => {
@@ -181,23 +185,28 @@ impl Actor {
                 let handle = ConnectionHandle::new(id, self.connection_emit.clone(), tcp_stream, self.rtc_config.clone());
 
                 // Store ownership of handle whilst it initialises
-                self.connections.insert(id, connection_state::Connection::new(handle));
+                self.connections.insert(id, Connection::Connecting(ConnectingConnection::new(handle)));
             },
             ActorMessage::SendReliable(to, bytes) => {
-                let conn = self.connections.get_mut(&to).expect("Connection with id should be available.");
-
-                conn.get_handle().send_reliable(bytes);
+                match self.connections.get_mut(&to) {
+                    Some(Connection::Ready(connection)) => connection.send_reliable(bytes),
+                    Some(Connection::Connecting(_)) => warn!("Dropping reliable message: connection={to} is not ready"),
+                    None => warn!("Dropping reliable message: connection={to} is not tracked"),
+                }
             },
             ActorMessage::SendUnreliable(to, bytes) => {
-                let conn = self.connections.get_mut(&to).expect("Connection with id should be available.");
-
-                conn.get_handle().send_unreliable(bytes);
+                match self.connections.get_mut(&to) {
+                    Some(Connection::Ready(connection)) => connection.send_unreliable(bytes),
+                    Some(Connection::Connecting(_)) => warn!("Dropping unreliable message: connection={to} is not ready"),
+                    None => warn!("Dropping unreliable message: connection={to} is not tracked"),
+                }
             },
             ActorMessage::Broadcast(bytes) => {
-                self.connections
-                    .values_mut()
-                    .filter(|conn| conn.is_alive())
-                    .for_each(|conn| conn.get_handle().send_reliable(bytes.clone()));
+                for connection in self.connections.values_mut() {
+                    if let Connection::Ready(connection) = connection {
+                        connection.send_reliable(bytes.clone());
+                    }
+                }
             },
         }
     }
@@ -209,26 +218,35 @@ impl Actor {
 }
 
 
-/// Maintains a 'liveness' invariant on a ConnectionHandle, panicking if it has not been set to 'alive'.
+/// Types for protecting connection methods before upgrade.
 mod connection_state {
+    use bytes::Bytes;
     use super::connection::ConnectionHandle;
 
-    pub struct Connection {
-        alive: bool,
+    pub(super) enum Connection {
+        Connecting(ConnectingConnection),
+        Ready(ReadyConnection),
+    }
+
+    pub(super) struct ConnectingConnection {
         handle: ConnectionHandle,
     }
 
-    impl Connection {
-        pub fn new(handle: ConnectionHandle) -> Self { Self { alive: false, handle } }
-        pub fn set_alive(&mut self) { self.alive = true; }
-        pub fn is_alive(&self) -> bool { self.alive }
+    /// Establishment has been observed; subsequent transport failures remain possible.
+    pub(super) struct ReadyConnection {
+        handle: ConnectionHandle,
+    }
 
-        pub fn get_handle(&mut self) -> &mut ConnectionHandle {
-            if self.alive {
-                &mut self.handle
-            } else {
-                panic!("Connection not tracked as live yet.")
-            }
-        }
+    impl ConnectingConnection {
+        pub(super) fn new(handle: ConnectionHandle) -> Self { Self { handle } }
+
+        /// Called when upgrade is safe, e.g. when this actor receives ConnectionEstablished.
+        pub(super) fn into_ready(self) -> ReadyConnection { ReadyConnection { handle: self.handle } }
+    }
+
+    impl ReadyConnection {
+        pub(super) fn send_reliable(&mut self, bytes: Bytes) { self.handle.send_reliable(bytes); }
+
+        pub(super) fn send_unreliable(&mut self, bytes: Bytes) { self.handle.send_unreliable(bytes); }
     }
 }
