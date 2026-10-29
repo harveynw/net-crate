@@ -90,6 +90,7 @@ fn handle_event(event: Event) {
 ### Limitations
 
 - There is no SSL support, and consequently no `wss://` support, in this crate. It is recommended to use a reverse proxy, like nginx, to upgrade traffic.
+- Server only operates in ICE lite mode on the WebRTC side. The `webrtc_host` parameter of `Server` must be contactable by all clients over UDP.
 
 ### License
 
