@@ -5,11 +5,15 @@ https://github.com/user-attachments/assets/91c10772-1902-4b49-8e7d-8087634b22a4
 
 # net crate
 
-Rust server that supports reliable and unreliable network communication with clients running in the browser. 
+Rust server that handles network communication with clients running in the browser. It supports two modes:
+- Standard <b>_reliable_, _ordered_</b> messaging using WebSockets.
+- An alternative <b>_unreliable_, _unordered_</b> messaging behaviour using WebRTC data channels. 
 
-The unreliable feature is helpful for avoiding latency spikes in applications where ordering and delivery guarantees are less important, such as multiplayer games. This is achieved using WebRTC, which has a relatively complex API compared to WebSockets. This crate serves as a convenient implementation of the specific case where you wish to send small buffers of arbitrary bytes at high frequency.
+The latter is helpful for avoiding latency spikes in applications where ordering and delivery guarantees are less important, such as character movement in multiplayer games. 
 
-This crate is just the server component in a wider game system, you will need to arrange the necessary signalling logic on the client side. You can either view some examples connectors under `examples_clients` or ask a coding agent to write one.
+This is achieved using WebRTC, which is now well supported across browsers. It has a relatively large and complex API compared to WebSockets and supports numerous use cases. Thus this crate serves as a convenient implementation of the specific case where you wish to send small buffers of arbitrary bytes at high frequency.
+
+This is just the server component in a wider game system, you will need to arrange the necessary signalling logic on the client side. You can either view some examples connectors under `examples_clients` or ask a coding agent to write one.
 
 ### Install 
 
