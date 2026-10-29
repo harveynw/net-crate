@@ -184,6 +184,11 @@ impl Client {
                             "type": "answer", "sdp": answer.sdp,
                         }).to_string())).await?;
                     } else if let Some(candidate) = signal.candidate {
+                        let fields: Vec<_> = candidate.candidate.split_whitespace().collect();
+                        assert_eq!(fields[4], "127.0.0.1");
+                        assert_eq!(fields[6], "typ");
+                        assert_eq!(fields[7], "host");
+                        assert!(fields[2].eq_ignore_ascii_case("udp"));
                         self.peer.add_ice_candidate(candidate).await?;
                     } else {
                         return Err("Unrecognized server signalling message".into());

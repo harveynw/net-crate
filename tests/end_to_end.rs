@@ -91,3 +91,22 @@ async fn multiple_clients_route_messages_and_receive_broadcasts() -> TestResult 
     server.closed(second_id).await?;
     Ok(())
 }
+
+#[test]
+fn invalid_rtc_host_is_rejected_synchronously() {
+    assert!(std::panic::catch_unwind(|| net::Server::new("127.0.0.1:0", "0.0.0.0".parse().unwrap())).is_err());
+}
+
+#[tokio::test]
+async fn wildcard_websocket_bind_uses_explicit_rtc_host() -> TestResult {
+    let mut server = TestServer::start_with_bind_ip(std::net::Ipv4Addr::UNSPECIFIED)?;
+    let mut client = Client::connect(server.address).await?;
+    let id = server.opened().await?;
+    client.send_unreliable(b"explicit-host").await?;
+    server.received(id, b"explicit-host").await?;
+    server.send_unreliable(id, Bytes::from_static(b"response")).await?;
+    assert_eq!(client.receive_unreliable().await?.as_ref(), b"response");
+    client.close().await?;
+    server.closed(id).await?;
+    Ok(())
+}

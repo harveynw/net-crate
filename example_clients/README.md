@@ -11,7 +11,7 @@ use net::{Event, Server};
 use std::{thread::sleep, time::Duration};
 
 fn main() {
-    let (mut server, mut events) = Server::new("127.0.0.1:3000");
+    let (mut server, mut events) = Server::new("127.0.0.1:3000", std::net::Ipv4Addr::LOCALHOST.into());
     loop {
         for event in events.pop_all() {
             if let Event::Received(id, data) = event {

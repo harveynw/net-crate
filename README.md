@@ -37,7 +37,7 @@ use net::{Event, Server};
 
 fn main() {
     // WebSocket server on TCP port 3000; WebRTC uses ephemeral UDP ports
-    let (mut server, mut queue) = Server::new("127.0.0.1:3000");
+    let (mut server, mut queue) = Server::new("127.0.0.1:3000", std::net::Ipv4Addr::LOCALHOST.into());
 
     loop {
         // Pop events once every tick
@@ -86,7 +86,6 @@ fn handle_event(event: Event) {
 └──────────────────┘                            └──────────────────┘
 ```
 
-The WebSocket listener uses the configured TCP port. Each WebRTC peer binds its own ephemeral UDP ports. 
 
 ### Limitations
 

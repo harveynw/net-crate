@@ -8,7 +8,7 @@
 use bytes::Bytes;
 use log::{info, warn};
 use webrtc::RtcConfig;
-use std::collections::HashMap;
+use std::{collections::HashMap, net::IpAddr};
 use tokio::{net::{TcpListener, TcpStream}, runtime::Builder, select, sync::mpsc};
 
 use connection::{ConnectionEvent, ConnectionHandle};
@@ -47,8 +47,13 @@ pub struct Server {
 
 impl Server {
     /// Create new server, which will be spawned on a new OS thread.
-    pub fn new(listen_addr: &str) -> (Self, EventQueue) {
-        let listen_addr = listen_addr.to_string();
+    ///
+    /// `ws_addr` binds the WebSocket TCP listener. `webrtc_host` must be a locally
+    /// assigned IP reachable by clients; WebRTC uses ICE-lite and ephemeral UDP
+    /// ports on this IP, without external STUN/TURN servers. Clients use full ICE.
+    pub fn new(ws_addr: &str, webrtc_host: IpAddr) -> (Self, EventQueue) {
+        let rtc_config = RtcConfig::new(webrtc_host);
+        let ws_addr = ws_addr.to_string();
 
         // Create a message queue
         let queue = EventQueue::default();
@@ -70,10 +75,9 @@ impl Server {
         std::thread::spawn(move || {
             rt.block_on(async move {
                 // Create websocket server
-                let listener = TcpListener::bind(&listen_addr).await.expect("Should be able to bind to listen_addr");
-                info!("Websockets server bound to {}", listen_addr);
+                let listener = TcpListener::bind(&ws_addr).await.expect("Should be able to bind to ws_addr");
+                info!("Websockets server bound to {}", ws_addr);
 
-                let rtc_config = RtcConfig::new(listener.local_addr().expect("Listener should have an address").ip());
                 let mut actor = Actor::new(sender_connection, queue_cloned, rtc_config);
 
                 // Event loop : Poll actor messages, tcp server and connection events.

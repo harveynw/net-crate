@@ -44,11 +44,16 @@ async fn actor_negotiates_exchanges_binary_messages_and_closes() {
         let (candidate_tx, mut candidates) = mpsc::unbounded_channel();
         let (channel_tx, mut channels) = mpsc::unbounded_channel();
         let (event_tx, mut remote_events) = mpsc::unbounded_channel();
-        let remote = config.create_peer_connection(Arc::new(RemoteHandler {
+        let remote = webrtc::peer_connection::PeerConnectionBuilder::new()
+            .with_configuration(webrtc::peer_connection::RTCConfigurationBuilder::default()
+                .with_ice_servers(vec![]).build())
+            .with_udp_addrs(vec![std::net::SocketAddr::from(([127, 0, 0, 1], 0))])
+            .with_runtime(Arc::new(webrtc::runtime::TokioRuntime))
+            .with_handler(Arc::new(RemoteHandler {
             candidates: candidate_tx,
             channels: channel_tx,
             events: event_tx,
-        })).await.unwrap();
+        })).build().await.unwrap();
 
         let (emit, mut events) = mpsc::channel(1024);
         let mut actor = RTCHandle::new(emit, config);
@@ -56,10 +61,12 @@ async fn actor_negotiates_exchanges_binary_messages_and_closes() {
             panic!("The offer must precede every candidate");
         };
         let offer: serde_json::Value = serde_json::from_str(&offer).unwrap();
+        assert!(offer["sdp"].as_str().unwrap().lines().any(|line| line == "a=ice-lite"));
         remote.set_remote_description(RTCSessionDescription::offer(
             offer["sdp"].as_str().unwrap().to_owned(),
         ).unwrap()).await.unwrap();
         let answer = remote.create_answer(None).await.unwrap();
+        assert!(!answer.sdp.lines().any(|line| line == "a=ice-lite"));
         remote.set_local_description(answer.clone()).await.unwrap();
 
         // Exercise the case where an ICE candidate reaches the actor before the SDP answer.

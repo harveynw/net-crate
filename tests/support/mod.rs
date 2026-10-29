@@ -22,12 +22,16 @@ pub struct TestServer {
 
 impl TestServer {
     pub fn start() -> TestResult<Self> {
+        Self::start_with_bind_ip(std::net::Ipv4Addr::LOCALHOST)
+    }
+
+    pub fn start_with_bind_ip(bind_ip: std::net::Ipv4Addr) -> TestResult<Self> {
         // Server::new does not expose its bound address, so select an available
         // port before starting it. Client::connect retries until it is listening.
         let reservation = std::net::TcpListener::bind("127.0.0.1:0")?;
         let address = reservation.local_addr()?;
         drop(reservation);
-        let (server, queue) = Server::new(&address.to_string());
+        let (server, queue) = Server::new(&SocketAddr::new(bind_ip.into(), address.port()).to_string(), address.ip());
         Ok(Self {
             address,
             server,

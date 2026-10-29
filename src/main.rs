@@ -13,7 +13,7 @@ fn main() {
 
     info!("Starting...");
 
-    let (server , queue) = Server::new("127.0.0.1:3000");
+    let (server , queue) = Server::new("127.0.0.1:3000", std::net::Ipv4Addr::LOCALHOST.into());
 
     event_loop(server, queue);
 }
