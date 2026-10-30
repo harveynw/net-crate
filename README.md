@@ -3,6 +3,9 @@ https://github.com/user-attachments/assets/91c10772-1902-4b49-8e7d-8087634b22a4
 
 <small><i>Multiplayer demo adapted from [this](https://threejs.org/examples/#webgl_animation_skinning_blending) THREE.js example.</i></small>
 
+> [!NOTE]
+> This crate was developed back when the [WebTransport API](https://www.w3.org/TR/webtransport/) was not widely supported, you should now look to using it instead.
+> 
 # net crate
 
 Rust server that handles network communication with clients running in the browser. It supports two modes:
